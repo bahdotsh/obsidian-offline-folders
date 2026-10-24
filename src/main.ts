@@ -414,8 +414,12 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
   }
 
   async #onMemberAdded(groupId: string, userId: string, groupName?: string) {
-    if (userId === this.address && !this.settings.folders[groupId]) {
+    const known = this.settings.folders[groupId];
+    if (userId === this.address && (!known || known.removed)) {
       // This device was let in: the folder's notes arrive as its document.
+      // A device let back in after a removal starts over in a new folder:
+      // its old copy stays where it is as ordinary files, and is never read
+      // back into the document, where it could overwrite newer text.
       // The event does not say which request was answered. With one pending
       // it is that one; otherwise the owner's roster names it by its tag.
       if (this.settings.pendingJoins.length === 1) this.settings.pendingJoins = [];
