@@ -43,11 +43,19 @@ export class JoinModal extends Modal {
       t.setPlaceholder("xxxxxxxxxxxxxxxx-xxxxxx").onChange((v) => (value = v));
       t.inputEl.addClass("off-code-input");
       t.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") submit();
+        if (e.key !== "Enter" || e.isComposing) return;
+        // Without this the rest of the keypress lands on whatever gets
+        // focus once the dialog closes, which is usually the panel's
+        // "Join with a code" button: a fresh, empty dialog opens.
+        e.preventDefault();
+        submit();
       });
       window.setTimeout(() => t.inputEl.focus(), 0);
     });
+    let submitted = false;
     const submit = () => {
+      if (submitted) return;
+      submitted = true;
       this.close();
       this.onJoin(value);
     };
