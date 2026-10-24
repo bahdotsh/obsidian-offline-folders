@@ -12,7 +12,7 @@ what it already had, and nothing written afterwards can reach it.
 Offline Folders is a showcase for the
 [Offline Protocol SDK](https://github.com/Offline-Protocol/offline-protocol-sdk).
 The SDK supplies identity, sessions, groups, encryption, links and storage.
-This plugin is about 1,700 lines of TypeScript and CSS on top.
+This plugin is about 1,800 lines of TypeScript and CSS on top.
 
 ## What you see
 
@@ -76,6 +76,9 @@ npm install
 OFFLINE_SDK=/path/to/offline-protocol-sdk npm run build   # default: ../sdk-web-remove-member
 npm run install-plugin -- "/path/to/Vault A" "/path/to/Vault B"
 ```
+
+`npm run typecheck` resolves the SDK's types through the `sdk-path` link that
+the build creates, so build once before type checking a fresh clone.
 
 Then enable *Offline Folders* under Settings → Community plugins in each
 vault. `dist/` holds `main.js`, `manifest.json`, `styles.css` and
