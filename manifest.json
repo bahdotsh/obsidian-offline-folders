@@ -1,0 +1,9 @@
+{
+  "id": "offline-folders",
+  "name": "Offline Folders",
+  "version": "0.1.0",
+  "minAppVersion": "1.8.0",
+  "description": "Share a folder with other devices: live co-editing, end-to-end encrypted with MLS, peer to peer with no server. Remove someone and they lose access for real.",
+  "author": "Offline Protocol",
+  "isDesktopOnly": false
+}

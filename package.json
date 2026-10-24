@@ -1,0 +1,28 @@
+{
+  "name": "obsidian-offline-folders",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Obsidian folders that sync peer to peer, end-to-end encrypted with MLS, with no server. A showcase for the Offline Protocol SDK.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "install-plugin": "node scripts/install.mjs"
+  },
+  "dependencies": {
+    "lib0": "0.2.119",
+    "y-codemirror.next": "0.3.5",
+    "y-protocols": "1.0.6",
+    "yjs": "13.6.27"
+  },
+  "devDependencies": {
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.38.1",
+    "@types/node": "22.15.3",
+    "esbuild": "0.25.5",
+    "obsidian": "1.8.7",
+    "typescript": "5.8.3"
+  }
+}
