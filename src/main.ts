@@ -132,13 +132,27 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
       }
       this.node = node;
     } catch (error) {
-      this.#status = "failed";
-      this.#error = String((error as Error)?.message ?? error);
-      new Notice(`Offline Folders could not start: ${this.#error}`);
-      this.refreshPanel();
+      this.#failed(error);
       return;
     }
-    const node = this.node;
+    try {
+      await this.#run(this.node);
+    } catch (error) {
+      // Either the node failed before it was running, or the plugin was
+      // disabled while starting and its calls were rejected on purpose.
+      if (!this.#unloading) this.#failed(error);
+    }
+  }
+
+  #failed(error: unknown) {
+    this.#status = "failed";
+    this.#error = String((error as Error)?.message ?? error);
+    new Notice(`Offline Folders could not start: ${this.#error}`);
+    this.refreshPanel();
+  }
+
+  /** Everything after the node is up: the room, the mesh, the folders, the vault and editor events. */
+  async #run(node: OfflineNode) {
     node.addEventListener("event", (e) => this.#onEvent((e as CustomEvent<EngineEvent>).detail));
     node.addEventListener("fatal", (e) => {
       this.#status = "failed";
@@ -224,7 +238,12 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
     for (const f of this.folders.values()) {
       if (f.record.path.startsWith(folder.path + "/")) return new Notice(`It contains a shared folder already: ${f.record.path}`);
     }
-    const info = await node.createGroup(folder.name);
+    let info: { group_id: string };
+    try {
+      info = await node.createGroup(folder.name);
+    } catch (error) {
+      return new Notice(`Could not share ${folder.name}: ${(error as Error).message}`);
+    }
     const record: FolderRecord = {
       groupId: info.group_id,
       name: folder.name,
