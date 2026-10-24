@@ -416,7 +416,9 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
   async #onMemberAdded(groupId: string, userId: string, groupName?: string) {
     if (userId === this.address && !this.settings.folders[groupId]) {
       // This device was let in: the folder's notes arrive as its document.
-      const pending = this.settings.pendingJoins.shift();
+      // The event does not say which request was answered. With one pending
+      // it is that one; otherwise the owner's roster names it by its tag.
+      if (this.settings.pendingJoins.length === 1) this.settings.pendingJoins = [];
       const info = await this.node!.groupInfo(groupId);
       const name = groupName ?? info?.name ?? "Shared folder";
       const record: FolderRecord = {
@@ -429,7 +431,6 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
       };
       for (const m of info?.members ?? []) record.members[m] ??= { name: shortAddress(m) };
       this.settings.folders[groupId] = record;
-      if (pending) this.settings.pendingJoins = this.settings.pendingJoins.filter((p) => p.tag !== pending.tag);
       await this.saveSettings();
       await this.vault.createFolder(record.path).catch(() => {});
       const folder = await this.#openFolder(record);
@@ -516,6 +517,7 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
         for (const address of Object.keys(record.members)) {
           if (address !== this.address && !message.members[address]) delete record.members[address];
         }
+        if (message.tag) this.settings.pendingJoins = this.settings.pendingJoins.filter((p) => p.tag !== message.tag);
         void this.saveSettings();
         this.refreshPanel();
         return;
@@ -542,7 +544,7 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
   #broadcastRoster(record: FolderRecord) {
     const folder = this.folders.get(record.groupId);
     if (!folder) return;
-    this.#sendFolder(folder, { k: "roster", owner: record.owner, members: record.members });
+    this.#sendFolder(folder, { k: "roster", owner: record.owner, members: record.members, tag: record.tag });
   }
 
   // ---- folders -------------------------------------------------------------

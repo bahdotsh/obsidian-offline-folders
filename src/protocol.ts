@@ -23,8 +23,12 @@ export type FolderMessage =
   | { k: "presence"; u: string }
   /** A member's name and room. */
   | { k: "hello"; name: string; room: string }
-  /** The owner's view of who is in the folder. */
-  | { k: "roster"; owner: string; members: Record<string, Member> }
+  /**
+   * The owner's view of who is in the folder, and its invite tag, so a
+   * device that asked to join several folders knows which request this
+   * folder answered.
+   */
+  | { k: "roster"; owner: string; members: Record<string, Member>; tag?: string }
   /** One piece of a message too large to send whole. */
   | { k: "part"; id: string; i: number; n: number; d: string };
 
