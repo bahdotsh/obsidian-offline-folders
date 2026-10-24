@@ -1,7 +1,7 @@
 // The side panel: who is in each shared folder, whether they are reachable,
 // the folder's key epoch, and what the network actually carries.
 
-import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type { WireFrame } from "./engine";
 import type { RelayState } from "./mesh";
 import { shortAddress } from "./protocol";
@@ -118,7 +118,7 @@ export class PanelView extends ItemView {
       empty.createEl("p", { text: "Nothing shared yet." });
       empty.createEl("p", {
         cls: "off-muted",
-        text: "Right-click a folder and choose “Share with Offline Folders”, or join one with a code from another device.",
+        text: `${Platform.isMobile ? "Long-press" : "Right-click"} a folder and choose “Share with Offline Folders”, or join one with a code from another device.`,
       });
     }
 

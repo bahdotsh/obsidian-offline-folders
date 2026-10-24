@@ -13,7 +13,7 @@
 // current members can read them. Inviting a device adds it to the group;
 // removing one moves everyone else to a new epoch whose keys it never gets.
 
-import { Menu, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, WorkspaceLeaf, debounce, normalizePath } from "obsidian";
+import { Menu, Notice, Platform, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, WorkspaceLeaf, debounce, normalizePath } from "obsidian";
 import * as Y from "yjs";
 import { applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { OfflineNode, startNode, WireFrame } from "./engine";
@@ -272,7 +272,7 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
     if (parent && !parent.isRoot() && !this.folderFor(parent.path + "/x.md")) {
       void this.shareFolder(parent);
     } else {
-      new Notice("Right-click a folder in the file explorer and choose “Share with Offline Folders”.");
+      new Notice(`${Platform.isMobile ? "Long-press" : "Right-click"} a folder in the file explorer and choose “Share with Offline Folders”.`);
     }
   }
 
