@@ -107,7 +107,7 @@ export class SharedFolder {
     const root = this.record.path + "/";
     if (!path.startsWith(root)) return null;
     const rel = path.slice(root.length);
-    const ext = rel.split(".").pop() ?? "";
+    const ext = (rel.split(".").pop() ?? "").toLowerCase();
     return SYNCED_EXTENSIONS.has(ext) ? rel : null;
   }
 
