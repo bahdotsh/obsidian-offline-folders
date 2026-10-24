@@ -105,8 +105,11 @@ This is a showcase, not a product.
 - **Removal can't take back what was already shared.** It stops everything
   after the removal. The removed device keeps its copy as ordinary files.
 - **Only the owner can invite and remove**, and the engine enforces it.
-- **Desktop is what has been tested.** Mobile Obsidian has the same web
-  platform and should work, but has not been tried.
+- **Tested on macOS and Android.** The whole flow (share, join, live
+  co-editing, offline merge, removal) has been run between a Mac and an
+  Android 16 phone on the same Wi-Fi. iOS has not been tried. On a phone,
+  syncing only happens while Obsidian is open: Android suspends it in the
+  background, and it catches up when reopened.
 - **Devices link over the same local network.** The carrier is started with
   no STUN or TURN servers, so WebRTC offers only local addresses. Linking
   across networks needs those servers passed to `WebRtcCarrier` (`iceServers`
