@@ -6,7 +6,7 @@
 // show another note in the same editor, so bindings are re-checked whenever
 // the open notes change.
 
-import { Compartment } from "@codemirror/state";
+import { Compartment, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { MarkdownView, Workspace } from "obsidian";
 import * as Y from "yjs";
@@ -19,6 +19,8 @@ interface Binding {
   folder: SharedFolder;
   rel: string;
   path: string;
+  /** What the compartment holds while bound; a fresh editor state drops it. */
+  extension: Extension;
 }
 
 export class EditorBinder {
@@ -50,8 +52,12 @@ export class EditorBinder {
       const folder = path ? this.folderFor(path) : null;
       const rel = folder && path ? folder.rel(path) : null;
       const current = this.#bound.get(cm);
-      if (current && current.path === path && current.folder === folder) continue;
-      if (current) this.#unbind(cm, current);
+      if (current && current.path === path && current.folder === folder) {
+        if (collab.get(cm.state) === current.extension) continue;
+        // Obsidian gave the editor a new state for the same note (a reload,
+        // say), which emptied the compartment: bind again.
+        this.#bound.delete(cm);
+      } else if (current) this.#unbind(cm, current);
       if (folder && rel && path) this.#bind(cm, folder, rel, path);
     }
     for (const [cm, binding] of this.#bound) if (!live.has(cm)) this.#unbind(cm, binding);
@@ -76,8 +82,9 @@ export class EditorBinder {
       cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: value } });
     }
     const undoManager = new Y.UndoManager(ytext);
-    cm.dispatch({ effects: collab.reconfigure(yCollab(ytext, folder.awareness, { undoManager })) });
-    this.#bound.set(cm, { folder, rel, path });
+    const extension = yCollab(ytext, folder.awareness, { undoManager });
+    cm.dispatch({ effects: collab.reconfigure(extension) });
+    this.#bound.set(cm, { folder, rel, path, extension });
   }
 
   #unbind(cm: EditorView, binding: Binding) {
