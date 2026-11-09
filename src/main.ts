@@ -51,6 +51,8 @@ type EngineEvent = { type: string; [field: string]: unknown };
 
 const INVITE_RETRY_MS = 500;
 const INVITE_ATTEMPTS = 120;
+/** Away this long, the other devices have dropped this one (the SDK closes a link 15 s after it goes quiet). */
+const ASLEEP_MS = 15_000;
 
 export default class OfflineFoldersPlugin extends Plugin implements FolderHost, PanelActions {
   settings!: Settings;
@@ -164,6 +166,23 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
 
     this.mesh = new Mesh(node, this.settings.room, () => this.refreshPanel());
     void this.mesh.host();
+    // A phone app sleeps in the background, and its links die with it (the
+    // SDK reopens the room's relay sockets itself). Back after long enough
+    // that the others dropped it: start the links over now, rather than wait
+    // for each to time out.
+    let hiddenAt: number | null = null;
+    this.registerDomEvent(document, "visibilitychange", () => {
+      if (!Platform.isMobile) return;
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (away < ASLEEP_MS) return;
+      this.mesh?.dropLinks();
+      window.setTimeout(() => this.#maintain(), 500);
+    });
 
     const vaultFolderDir = normalizePath(`${this.manifest.dir}/state`);
     if (!(await this.vault.adapter.exists(vaultFolderDir))) await this.vault.adapter.mkdir(vaultFolderDir);

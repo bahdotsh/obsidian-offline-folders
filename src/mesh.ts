@@ -28,6 +28,9 @@ export class Mesh {
   #closed = false;
   #onChange: () => void;
 
+  // The SDK closes a connection left "disconnected" (an Android WebView can
+  // leave one there for good), and keeps a hosted room's relay sockets open
+  // across sleep and network changes, so neither needs help here.
   constructor(node: OfflineNode, room: string, onChange: () => void) {
     this.#node = node;
     this.#room = room;
@@ -49,6 +52,17 @@ export class Mesh {
       this.#hostRetry = window.setTimeout(() => this.host(), 30_000);
     }
     this.#onChange();
+  }
+
+  /**
+   * For a device that was asleep: its links died while it slept, and the
+   * others dropped them. Closing them now lets it dial again at once, rather
+   * than wait for each to time out.
+   */
+  dropLinks() {
+    if (this.#closed) return;
+    this.#nextTry.clear();
+    this.rtc.close();
   }
 
   /**
