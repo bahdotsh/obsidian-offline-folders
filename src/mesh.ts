@@ -5,7 +5,7 @@
 // Two windows on the same machine also link over a BroadcastChannel inside
 // the engine, with no network at all.
 
-import { NostrSignaller, OfflineNode, RELAYS, WebRtcCarrier } from "./engine";
+import { NostrSignaller, OfflineNode, WebRtcCarrier } from "./engine";
 
 const JOIN_TIMEOUT_MS = 20_000;
 const MIN_RETRY_MS = 5_000;
@@ -15,7 +15,7 @@ export type RelayState = "connecting" | "listening" | "unreachable";
 
 export class Mesh {
   readonly rtc: WebRtcCarrier;
-  readonly signaller: NostrSignaller;
+  signaller: NostrSignaller;
   readonly linked = new Set<string>();
   relay: RelayState = "connecting";
 
@@ -23,6 +23,7 @@ export class Mesh {
   #room: string;
   #hosted: { close(): void } | null = null;
   #hostRetry: number | null = null;
+  #hostRun = 0;
   #joining = new Set<string>();
   #nextTry = new Map<string, { at: number; delay: number }>();
   #closed = false;
@@ -31,25 +32,49 @@ export class Mesh {
   // The SDK closes a connection left "disconnected" (an Android WebView can
   // leave one there for good), and keeps a hosted room's relay sockets open
   // across sleep and network changes, so neither needs help here.
-  constructor(node: OfflineNode, room: string, onChange: () => void) {
+  constructor(node: OfflineNode, room: string, relays: string[], onChange: () => void) {
     this.#node = node;
     this.#room = room;
     this.#onChange = onChange;
     this.rtc = new WebRtcCarrier(node);
-    this.signaller = new NostrSignaller(node, { relays: RELAYS });
+    this.signaller = new NostrSignaller(node, { relays });
   }
 
-  /** Answers every device that joins this device's room. */
+  /**
+   * Signals through `relays` from now on: the room is opened again on them,
+   * and joins after this use them.
+   */
+  setRelays(relays: string[]) {
+    if (this.#closed) return;
+    this.signaller = new NostrSignaller(this.#node, { relays });
+    this.#nextTry.clear();
+    this.relay = "connecting";
+    this.#onChange();
+    void this.host();
+  }
+
+  /**
+   * Answers every device that joins this device's room. Calling it again
+   * replaces the room that is open.
+   */
   async host() {
     if (this.#closed) return;
+    const run = ++this.#hostRun;
+    if (this.#hostRetry !== null) clearTimeout(this.#hostRetry);
+    this.#hostRetry = null;
+    this.#hosted?.close();
+    this.#hosted = null;
     try {
-      this.#hosted = await this.signaller.host(this.#room, this.rtc);
+      const hosted = await this.signaller.host(this.#room, this.rtc);
+      if (run !== this.#hostRun || this.#closed) return hosted.close();
+      this.#hosted = hosted;
       this.relay = "listening";
     } catch {
-      // No relay reachable (offline, say). Same-machine links still work;
-      // try again later.
+      if (run !== this.#hostRun || this.#closed) return;
+      // No relay reachable when the room opened (offline, say). Once open,
+      // the SDK keeps it open; until then, try again.
       this.relay = "unreachable";
-      this.#hostRetry = window.setTimeout(() => this.host(), 30_000);
+      this.#hostRetry = window.setTimeout(() => void this.host(), 30_000);
     }
     this.#onChange();
   }

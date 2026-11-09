@@ -16,7 +16,7 @@
 import { Menu, Notice, Platform, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, WorkspaceLeaf, debounce, normalizePath } from "obsidian";
 import * as Y from "yjs";
 import { applyAwarenessUpdate, encodeAwarenessUpdate } from "y-protocols/awareness";
-import { OfflineNode, startNode, WireFrame } from "./engine";
+import { OfflineNode, RELAYS, startNode, WireFrame } from "./engine";
 import { Mesh } from "./mesh";
 import { FolderHost, FolderRecord, REMOTE, SharedFolder } from "./folder";
 import { collab, EditorBinder } from "./editor";
@@ -36,6 +36,7 @@ import {
   unb64,
 } from "./protocol";
 import { PanelActions, PanelFolder, PanelState, PanelView, VIEW_TYPE } from "./view";
+import { LocalRelay } from "./relay";
 
 interface Settings {
   deviceName: string;
@@ -45,7 +46,14 @@ interface Settings {
   room?: string;
   folders: Record<string, FolderRecord>;
   pendingJoins: { code: string; room: string; tag: string }[];
+  /** Nostr relays that carry the sealed handshake when two devices link. */
+  relays: string[];
+  /** Desktop: run a relay on this computer, for a network with no internet. */
+  localRelay: boolean;
+  relayPort: number;
 }
+
+const RELAY_PORT = 4869;
 
 type EngineEvent = { type: string; [field: string]: unknown };
 
@@ -58,6 +66,9 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
   settings!: Settings;
   node: OfflineNode | null = null;
   mesh: Mesh | null = null;
+  /** The relay this computer runs, when it runs one. */
+  localRelay: LocalRelay | null = null;
+  localRelayError: string | null = null;
   folders = new Map<string, SharedFolder>();
   binder!: EditorBinder;
 
@@ -119,6 +130,7 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
     this.binder.releaseAll();
     for (const folder of this.folders.values()) await folder.close();
     this.mesh?.close();
+    this.localRelay?.close();
     await this.node?.stop().catch(() => {});
   }
 
@@ -164,7 +176,8 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
     this.settings.room ??= await node.newRoom();
     await this.saveSettings();
 
-    this.mesh = new Mesh(node, this.settings.room, () => this.refreshPanel());
+    await this.#startLocalRelay();
+    this.mesh = new Mesh(node, this.settings.room, this.relays(), () => this.refreshPanel());
     void this.mesh.host();
     // A phone app sleeps in the background, and its links die with it (the
     // SDK reopens the room's relay sockets itself). Back after long enough
@@ -725,12 +738,44 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
       room: data.room,
       folders: data.folders ?? {},
       pendingJoins: data.pendingJoins ?? [],
+      relays: Array.isArray(data.relays) ? data.relays : [...RELAYS],
+      localRelay: data.localRelay ?? false,
+      relayPort: data.relayPort ?? RELAY_PORT,
     };
     await this.saveSettings();
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  // ---- relays ---------------------------------------------------------------
+
+  /** The relays this device signals through: its list, and its own relay if it runs one. */
+  relays(): string[] {
+    const own = this.localRelay ? [`ws://127.0.0.1:${this.settings.relayPort}`] : [];
+    return [...new Set([...this.settings.relays, ...own])];
+  }
+
+  async #startLocalRelay() {
+    this.localRelay?.close();
+    this.localRelay = null;
+    this.localRelayError = null;
+    if (!this.settings.localRelay || !Platform.isDesktopApp) return;
+    try {
+      this.localRelay = await LocalRelay.start(this.settings.relayPort);
+    } catch (error) {
+      this.localRelayError = String((error as Error)?.message ?? error);
+      new Notice(`Offline Folders could not run a relay on port ${this.settings.relayPort}: ${this.localRelayError}`);
+    }
+  }
+
+  /** After the relay settings change: restart this computer's relay if needed, and signal through the new list. */
+  async applyRelays() {
+    await this.saveSettings();
+    if (this.#unloading) return;
+    await this.#startLocalRelay();
+    this.mesh?.setRelays(this.relays());
   }
 }
 
@@ -751,6 +796,64 @@ class SettingsTab extends PluginSettingTab {
         }),
       );
     new Setting(containerEl).setName("Device address").setDesc(this.plugin.address || "starting…");
+
+    new Setting(containerEl).setName("Linking devices").setHeading();
+    new Setting(containerEl)
+      .setName("Relays")
+      .setDesc(
+        "Nostr relays that carry the sealed handshake when two devices link, one per line. Notes never cross them. " +
+          "Devices link only through a relay they both list. With no internet, list a relay on your own network, " +
+          "such as one a computer runs below.",
+      )
+      .addTextArea((t) => {
+        t.inputEl.rows = 4;
+        t.inputEl.style.width = "100%";
+        t.setValue(this.plugin.settings.relays.join("\n"));
+        t.inputEl.addEventListener("blur", async () => {
+          const urls = t.getValue().split(/\s+/).map((u) => u.trim()).filter(Boolean);
+          const bad = urls.filter((u) => !/^wss?:\/\/[^\s/]+/.test(u));
+          if (bad.length) return new Notice(`Not a relay address: ${bad.join(", ")}. Use ws:// or wss://.`);
+          if (urls.join("\n") === this.plugin.settings.relays.join("\n")) return;
+          this.plugin.settings.relays = urls;
+          await this.plugin.applyRelays();
+        });
+      });
+    if (!Platform.isDesktopApp) return;
+    new Setting(containerEl)
+      .setName("Run a relay on this computer")
+      .setDesc(
+        "For a network with no internet. It carries only the sealed handshake, stores nothing, " +
+          "and runs while Obsidian is open. Add its address to the relays on your other devices.",
+      )
+      .addToggle((t) =>
+        t.setValue(this.plugin.settings.localRelay).onChange(async (on) => {
+          this.plugin.settings.localRelay = on;
+          await this.plugin.applyRelays();
+          this.display();
+        }),
+      );
+    if (!this.plugin.settings.localRelay) return;
+    new Setting(containerEl).setName("Relay port").addText((t) =>
+      t.setValue(String(this.plugin.settings.relayPort)).onChange(
+        debounce(async (v: string) => {
+          const port = Number(v);
+          if (!Number.isInteger(port) || port < 1024 || port > 65535) return;
+          this.plugin.settings.relayPort = port;
+          await this.plugin.applyRelays();
+          this.display();
+        }, 800, true),
+      ),
+    );
+    const urls = LocalRelay.lanUrls(this.plugin.settings.relayPort);
+    new Setting(containerEl)
+      .setName("Address for your other devices")
+      .setDesc(
+        this.plugin.localRelayError
+          ? `Not running: ${this.plugin.localRelayError}`
+          : urls.length
+            ? urls.join("  or  ")
+            : "This computer has no network address right now.",
+      );
   }
 }
 

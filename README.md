@@ -46,8 +46,9 @@ Obsidian window (one per vault)                 dedicated worker
   removal notice to the removed one. The removed device's engine leaves the
   group and deletes its keys.
 - **Devices find each other by room code.** Each device hosts one Nostr room.
-  Public relays carry only the sealed WebRTC handshake, never a note. After
-  that, frames go device to device. Members exchange room codes inside the
+  Relays carry only the sealed WebRTC handshake, never a note. After that,
+  frames go device to device. The relays are a setting: three public ones
+  by default, or one on your own network. Members exchange room codes inside the
   encrypted group, so every member links to every other, and a folder keeps
   syncing when its owner is away.
 - **Windows on the same machine link with no network at all**, over a
@@ -117,6 +118,11 @@ This is a showcase, not a product.
 - **Devices link over the same local network.** The carrier is started with
   no STUN or TURN servers, so WebRTC offers only local addresses. Linking
   across networks needs those servers passed to `WebRtcCarrier` (`iceServers`
-  in `src/mesh.ts`). Finding each other by room code still needs the
-  internet, because the Nostr relays are public servers. Two windows on one
-  machine need neither.
+  in `src/mesh.ts`). Two windows on one machine need no network at all.
+- **With no internet, run a relay on your network.** Devices find each other
+  through a relay they all list, and the default relays are public servers.
+  Turn on **Run a relay on this computer** in a desktop's settings, then add
+  the address it shows (`ws://<its address>:4869`) to **Relays** on the
+  other devices. It carries only the sealed handshake, stores nothing, and
+  runs while Obsidian is open there. The whole flow has been run this way,
+  with none of the plugin's traffic leaving the local network.
