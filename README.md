@@ -102,6 +102,10 @@ This is a showcase, not a product.
 - **Two devices that create the same new file while apart:** one copy wins.
   Edits to an existing note always merge.
 - **A rename** syncs as a delete plus a create.
+- **A note deleted while Obsidian is closed comes back** from the other
+  devices at the next start. Delete notes with Obsidian open. A missing
+  file is not taken as a deletion on purpose: a whole folder renamed while
+  Obsidian was closed would otherwise delete every note on every device.
 - **Removal can't take back what was already shared.** It stops everything
   after the removal. The removed device keeps its copy as ordinary files.
 - **Only the owner can invite and remove**, and the engine enforces it.

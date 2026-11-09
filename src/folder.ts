@@ -62,6 +62,13 @@ export class SharedFolder {
   #sendTimer: number | null = null;
   /** What this plugin last wrote to each path, so its own write is not read back as an edit. */
   #written = new Map<string, string>();
+  /**
+   * A fingerprint of each note as this plugin last saw it on disk, saved
+   * beside the document. At start it tells an edit made while the plugin
+   * was off (the file changed) from a file Obsidian never got to save
+   * (the file did not change, and the document is ahead of it).
+   */
+  #seen = new Map<string, string>();
   /** Paths this plugin is deleting because another device did. */
   #deleting = new Set<string>();
   #closed = false;
@@ -120,9 +127,17 @@ export class SharedFolder {
   }
 
   async load() {
+    const adapter = this.host.vault.adapter;
     const path = this.host.statePath(this.groupId);
-    if (await this.host.vault.adapter.exists(path)) {
-      Y.applyUpdate(this.doc, new Uint8Array(await this.host.vault.adapter.readBinary(path)), DISK);
+    if (await adapter.exists(path)) {
+      Y.applyUpdate(this.doc, new Uint8Array(await adapter.readBinary(path)), DISK);
+    }
+    try {
+      const seen = JSON.parse(await adapter.read(this.#seenPath())) as Record<string, string>;
+      for (const [rel, print] of Object.entries(seen)) this.#seen.set(rel, print);
+    } catch {
+      // None yet (a folder from an older version, or a new one): every
+      // difference at start is then read as an edit on disk, as before.
     }
   }
 
@@ -139,7 +154,17 @@ export class SharedFolder {
       const rel = this.rel(file.path);
       if (rel === null) continue;
       seen.add(rel);
-      await this.ingest(file);
+      const text = await this.host.vault.read(file);
+      const doc = this.files.get(rel)?.toString();
+      if (doc !== undefined && doc !== text && this.#seen.get(rel) === fingerprint(text)) {
+        // The file is as this plugin last saw it, so the document is ahead:
+        // Obsidian was closed before it saved the latest edits. Reading the
+        // file in would delete them, here and on every other device.
+        this.#dirty.add(rel);
+        continue;
+      }
+      this.#see(rel, text);
+      this.setText(rel, text, DISK);
     }
     for (const rel of this.files.keys()) if (!seen.has(rel)) this.#dirty.add(rel);
     await this.flush();
@@ -148,8 +173,10 @@ export class SharedFolder {
   /** Reads a note from disk into the document, unless it is this plugin's own write. */
   async ingest(file: TFile) {
     const rel = this.rel(file.path);
-    if (rel === null || this.host.isBound(this, rel)) return;
+    if (rel === null) return;
     const text = await this.host.vault.read(file);
+    this.#see(rel, text);
+    if (this.host.isBound(this, rel)) return;
     if (this.#written.get(file.path) === text) return;
     this.#written.delete(file.path);
     this.setText(rel, text, DISK);
@@ -181,6 +208,7 @@ export class SharedFolder {
   removed(path: string) {
     const rel = this.rel(path);
     if (rel === null) return;
+    if (this.#seen.delete(rel)) this.#scheduleSave();
     if (this.#deleting.delete(path)) return;
     if (this.files.has(rel)) this.doc.transact(() => this.files.delete(rel), DISK);
   }
@@ -206,10 +234,12 @@ export class SharedFolder {
       if (existing instanceof TFile) {
         if ((await vault.read(existing)) === value) continue;
         this.#written.set(path, value);
+        this.#see(rel, value);
         await vault.modify(existing, value);
       } else if (!existing) {
         await ensureParent(vault, path);
         this.#written.set(path, value);
+        this.#see(rel, value);
         await vault.create(path, value);
       }
     }
@@ -239,7 +269,20 @@ export class SharedFolder {
 
   async save() {
     if (this.#closed) return;
-    await this.host.vault.adapter.writeBinary(this.host.statePath(this.groupId), toArrayBuffer(Y.encodeStateAsUpdate(this.doc)));
+    const adapter = this.host.vault.adapter;
+    await adapter.writeBinary(this.host.statePath(this.groupId), toArrayBuffer(Y.encodeStateAsUpdate(this.doc)));
+    await adapter.write(this.#seenPath(), JSON.stringify(Object.fromEntries(this.#seen)));
+  }
+
+  #see(rel: string, text: string) {
+    const print = fingerprint(text);
+    if (this.#seen.get(rel) === print) return;
+    this.#seen.set(rel, print);
+    this.#scheduleSave();
+  }
+
+  #seenPath() {
+    return this.host.statePath(this.groupId).replace(/\.ydoc$/, ".disk.json");
   }
 
   /** Stops syncing. The notes stay where they are, as ordinary files. */
@@ -251,7 +294,10 @@ export class SharedFolder {
     this.#closed = true;
     for (const timer of [this.#flushTimer, this.#saveTimer, this.#sendTimer]) if (timer !== null) clearTimeout(timer);
     this.awareness.destroy();
-    if (forget) await this.host.vault.adapter.remove(this.host.statePath(this.groupId)).catch(() => {});
+    if (forget) {
+      await this.host.vault.adapter.remove(this.host.statePath(this.groupId)).catch(() => {});
+      await this.host.vault.adapter.remove(this.#seenPath()).catch(() => {});
+    }
   }
 }
 
@@ -276,6 +322,13 @@ export function applyDiff(text: Y.Text, next: string) {
   }
   if (endPrev > start) text.delete(start, endPrev - start);
   if (endNext > start) text.insert(start, next.slice(start, endNext));
+}
+
+/** A note's length and FNV-1a hash: enough to tell whether a file changed. */
+function fingerprint(text: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return `${text.length}:${h.toString(16)}`;
 }
 
 const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff;

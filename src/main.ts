@@ -316,6 +316,7 @@ export default class OfflineFoldersPlugin extends Plugin implements FolderHost, 
     delete this.settings.folders[groupId];
     await this.saveSettings();
     await this.vault.adapter.remove(this.statePath(groupId)).catch(() => {});
+    await this.vault.adapter.remove(this.statePath(groupId).replace(/\.ydoc$/, ".disk.json")).catch(() => {});
     this.refreshPanel();
   }
 
